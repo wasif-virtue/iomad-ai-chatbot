@@ -1,26 +1,15 @@
 
+import { askAI } from "./aiService.js";
+
 async function main(): Promise<void> {
   try {
-    const response = await fetch("http://localhost:11434/api/generate", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "qwen3:4b",
-        prompt: "Explain what Moodle is in one short paragraph.",
-        stream: false,
-      }),
-    });
+    const question =
+      "What is Moodle, and how does it help teachers and learners?";
 
-    if (!response.ok) {
-      throw new Error(`Ollama returned HTTP ${response.status}`);
-    }
+    const answer = await askAI(question);
 
-    const data: { response: string } = await response.json();
-
-    console.log("\nAI response:\n");
-    console.log(data.response);
+    console.log("\nQuestion:", question);
+    console.log("\nAI answer:\n", answer);
   } catch (error) {
     console.error("Could not get a response from Ollama.");
 
