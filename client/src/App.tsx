@@ -1,122 +1,166 @@
-import { useState } from 'react'
-import heroImg from './assets/hero.png'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import './App.css'
+
+import { useState, type FormEvent } from "react";
+import "./App.css";
+
+type Message = {
+  role: "user" | "assistant";
+  content: string;
+};
 
 function App() {
-  const [count, setCount] = useState(0)
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [question, setQuestion] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const trimmedQuestion = question.trim();
+
+    if (!trimmedQuestion || loading) return;
+
+    setMessages((previous) => [
+      ...previous,
+      { role: "user", content: trimmedQuestion },
+    ]);
+    setQuestion("");
+    setError("");
+    setLoading(true);
+
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ question: trimmedQuestion }),
+      });
+
+      const data: { answer?: string; error?: string } =
+        await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "The request failed.");
+      }
+
+      if (typeof data.answer !== "string") {
+        throw new Error("The server returned an invalid response.");
+      }
+
+      setMessages((previous) => [
+        ...previous,
+        { role: "assistant", content: data.answer! },
+      ]);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Could not connect to the chatbot."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
+    <main className="app">
+      <header className="header">
+        <div className="brand-icon">AI</div>
         <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
+          <h1>Knowledge Assistant</h1>
+          <p>Local AI chatbot prototype</p>
         </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
+        <span className="status">
+          <span className="status-dot" />
+          Local prototype
+        </span>
+      </header>
+
+      <section className="chat">
+        {messages.length === 0 ? (
+          <div className="welcome">
+            <div className="welcome-icon">✦</div>
+            <h2>How can I help you?</h2>
+            <p>
+              Ask a question to test your local AI assistant.
+            </p>
+            <button
+              className="suggestion"
+              type="button"
+              onClick={() =>
+                setQuestion("What is Moodle and how does it work?")
+              }
+            >
+              What is Moodle and how does it work?
+              <span>↗</span>
+            </button>
+          </div>
+        ) : (
+          <div className="messages" aria-live="polite">
+            {messages.map((message, index) => (
+              <article
+                className={`message ${message.role}`}
+                key={`${index}-${message.role}`}
+              >
+                <div className="message-label">
+                  {message.role === "user" ? "You" : "Assistant"}
+                </div>
+                <div className="message-content">
+                  {message.content}
+                </div>
+              </article>
+            ))}
+            {loading && (
+              <div className="loading" role="status">
+                Assistant is thinking...
+              </div>
+            )}
+          </div>
+        )}
+
+        {error && <p className="error" role="alert">{error}</p>}
       </section>
 
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
+      <form className="composer" onSubmit={handleSubmit}>
+        <label className="sr-only" htmlFor="question">
+          Your question
+        </label>
+        <textarea
+          id="question"
+          value={question}
+          onChange={(event) => setQuestion(event.target.value)}
+          placeholder="Ask your question..."
+          rows={2}
+          maxLength={2000}
+          disabled={loading}
+          onKeyDown={(event) => {
+            if (
+              event.key === "Enter" &&
+              !event.shiftKey &&
+              !event.nativeEvent.isComposing
+            ) {
+              event.preventDefault();
+              event.currentTarget.form?.requestSubmit();
+            }
+          }}
+        />
+        <div className="composer-footer">
+          <span>Enter to send · Shift+Enter for a new line</span>
+          <button
+            type="submit"
+            disabled={loading || !question.trim()}
+          >
+            {loading ? "Thinking..." : "Send ↑"}
+          </button>
         </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
+      </form>
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+      <footer className="footer">
+        Prototype only · Answers are generated by a local AI model
+      </footer>
+    </main>
+  );
 }
 
-export default App
+export default App;
