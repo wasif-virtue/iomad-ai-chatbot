@@ -1,10 +1,11 @@
-
 import { useState, type FormEvent } from "react";
 import "./App.css";
 
 type Message = {
   role: "user" | "assistant";
   content: string;
+  sources?: string[];
+  usedKnowledge?: boolean;
 };
 
 function App() {
@@ -37,8 +38,12 @@ function App() {
         body: JSON.stringify({ question: trimmedQuestion }),
       });
 
-      const data: { answer?: string; error?: string } =
-        await response.json();
+      const data: {
+        answer?: string;
+        sources?: string[];
+        usedKnowledge?: boolean;
+        error?: string;
+      } = await response.json();
 
       if (!response.ok) {
         throw new Error(data.error || "The request failed.");
@@ -50,13 +55,18 @@ function App() {
 
       setMessages((previous) => [
         ...previous,
-        { role: "assistant", content: data.answer! },
+        {
+          role: "assistant",
+          content: data.answer!,
+          sources: data.sources ?? [],
+          usedKnowledge: data.usedKnowledge ?? false,
+        },
       ]);
     } catch (err) {
       setError(
         err instanceof Error
           ? err.message
-          : "Could not connect to the chatbot."
+          : "Could not connect to the chatbot.",
       );
     } finally {
       setLoading(false);
@@ -82,9 +92,7 @@ function App() {
           <div className="welcome">
             <div className="welcome-icon">✦</div>
             <h2>How can I help you?</h2>
-            <p>
-              Ask a question to test your local AI assistant.
-            </p>
+            <p>Ask a question to test your local AI assistant.</p>
             <button
               className="suggestion"
               type="button"
@@ -106,9 +114,26 @@ function App() {
                 <div className="message-label">
                   {message.role === "user" ? "You" : "Assistant"}
                 </div>
-                <div className="message-content">
-                  {message.content}
-                </div>
+                <div className="message-content">{message.content}</div>
+
+                {message.role === "assistant" && (
+                  <div className="message-sources">
+                    {message.usedKnowledge && message.sources?.length ? (
+                      <>
+                        <strong>Sources:</strong>
+                        <ul>
+                          {message.sources.map((source) => (
+                            <li key={source}>{source}</li>
+                          ))}
+                        </ul>
+                      </>
+                    ) : (
+                      <span>
+                        No matching local knowledge sources were found.
+                      </span>
+                    )}
+                  </div>
+                )}
               </article>
             ))}
             {loading && (
@@ -119,7 +144,11 @@ function App() {
           </div>
         )}
 
-        {error && <p className="error" role="alert">{error}</p>}
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
       </section>
 
       <form className="composer" onSubmit={handleSubmit}>
@@ -147,10 +176,7 @@ function App() {
         />
         <div className="composer-footer">
           <span>Enter to send · Shift+Enter for a new line</span>
-          <button
-            type="submit"
-            disabled={loading || !question.trim()}
-          >
+          <button type="submit" disabled={loading || !question.trim()}>
             {loading ? "Thinking..." : "Send ↑"}
           </button>
         </div>

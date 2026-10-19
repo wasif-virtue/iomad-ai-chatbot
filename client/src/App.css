@@ -284,3 +284,20 @@ textarea {
   cursor: pointer;
   pointer-events: auto;
 }
+
+.message-sources {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #e5e7eb;
+  color: #697386;
+  font-size: 0.85rem;
+}
+
+.message-sources ul {
+  margin: 6px 0 0;
+  padding-left: 20px;
+}
+
+.message-sources li {
+  overflow-wrap: anywhere;
+}

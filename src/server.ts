@@ -30,8 +30,13 @@ app.post("/api/chat", async (req: Request, res: Response) => {
   }
 
   try {
-    const answer = await askAI(question.trim());
-    res.json({ answer });
+   const result = await askAI(question.trim());
+
+res.json({
+  answer: result.answer,
+  sources: result.sources,
+  usedKnowledge: result.usedKnowledge,
+});
   } catch (error) {
     console.error("Chat request failed:", error);
 

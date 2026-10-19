@@ -1,4 +1,6 @@
+
 import { searchKnowledge } from "./knowledgeService.js";
+
 type OllamaResponse = {
   response?: string;
   thinking?: string;
@@ -13,9 +15,11 @@ export type AIAnswer = {
   usedKnowledge: boolean;
 };
 
-
-export async function askAI(question: string): Promise<string> {
+export async function askAI(question: string): Promise<AIAnswer> {
   const results = await searchKnowledge(question);
+
+  // Get unique filenames from the passages used in the prompt.
+  const sources = [...new Set(results.map((item) => item.source))];
 
   const context =
     results.length > 0
@@ -47,22 +51,25 @@ ${question}
 
 Return only the final answer. Do not include internal reasoning.`;
 
-  const response = await fetch("http://127.0.0.1:11434/api/generate", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "qwen3:4b",
-      prompt,
-      stream: false,
-      think: false,
-      options: {
-        num_predict: 512,
-        temperature: 0.2,
+  const response = await fetch(
+    "http://127.0.0.1:11434/api/generate",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
       },
-    }),
-  });
+      body: JSON.stringify({
+        model: "qwen3:4b",
+        prompt,
+        stream: false,
+        think: false,
+        options: {
+          num_predict: 512,
+          temperature: 0.2,
+        },
+      }),
+    },
+  );
 
   if (!response.ok) {
     throw new Error(`Ollama returned HTTP ${response.status}`);
@@ -76,8 +83,9 @@ Return only the final answer. Do not include internal reasoning.`;
 
   const rawAnswer = data.response ?? "";
 
-  // If Qwen includes a thinking section, keep only the text after it.
+  // Remove the thinking section if Qwen includes one.
   const closingTag = rawAnswer.lastIndexOf("</think>");
+
   const finalText =
     closingTag >= 0
       ? rawAnswer.slice(closingTag + "</think>".length)
@@ -93,5 +101,9 @@ Return only the final answer. Do not include internal reasoning.`;
     );
   }
 
-  return answer;
+  return {
+    answer,
+    sources,
+    usedKnowledge: results.length > 0,
+  };
 }
