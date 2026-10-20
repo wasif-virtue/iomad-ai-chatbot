@@ -1,7 +1,7 @@
 
 import { readdir, readFile } from "node:fs/promises";
 import mammoth from "mammoth";
-import pdfParse from "pdf-parse";
+import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -29,10 +29,34 @@ async function extractDocumentText(
   }
 
   if (extension === ".pdf") {
-    const buffer = await readFile(filePath);
-    const result = await pdfParse(buffer);
-    return result.text;
+  const buffer = await readFile(filePath);
+
+  const pdf = await getDocument({
+    data: new Uint8Array(buffer),
+  }).promise;
+
+  const pages: string[] = [];
+
+  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+    const page = await pdf.getPage(pageNumber);
+    const content = await page.getTextContent();
+
+    const pageText = content.items
+      .map((item) => {
+        if ("str" in item) {
+          return item.str;
+        }
+
+        return "";
+      })
+      .filter(Boolean)
+      .join(" ");
+
+    pages.push(pageText);
   }
+
+  return pages.join("\n\n");
+}
 
   if (extension === ".docx") {
     const result = await mammoth.extractRawText({
