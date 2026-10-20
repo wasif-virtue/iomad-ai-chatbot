@@ -1,5 +1,7 @@
 
 import { readdir, readFile } from "node:fs/promises";
+import mammoth from "mammoth";
+import pdfParse from "pdf-parse";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -16,6 +18,31 @@ const EMBEDDING_MODEL = "nomic-embed-text";
 const MAX_RESULTS = 4;
 const MIN_SIMILARITY = 0.35;
 
+async function extractDocumentText(
+  filePath: string,
+  fileName: string,
+): Promise<string> {
+  const extension = path.extname(fileName).toLowerCase();
+
+  if (extension === ".md") {
+    return readFile(filePath, "utf8");
+  }
+
+  if (extension === ".pdf") {
+    const buffer = await readFile(filePath);
+    const result = await pdfParse(buffer);
+    return result.text;
+  }
+
+  if (extension === ".docx") {
+    const result = await mammoth.extractRawText({
+      path: filePath,
+    });
+    return result.value;
+  }
+
+  throw new Error(`Unsupported document type: ${extension}`);
+}
 type KnowledgeChunk = {
   source: string;
   content: string;
@@ -68,15 +95,17 @@ async function createEmbeddings(
 async function loadKnowledge(): Promise<KnowledgeChunk[]> {
   const files = await readdir(knowledgeDirectory);
 
-  const markdownFiles = files
-    .filter((file) => file.endsWith(".md"))
-    .sort();
+  const supportedFiles = files
+  .filter((file) => /\.(md|pdf|docx)$/i.test(file))
+  .sort();
 
   const chunks: Omit<KnowledgeChunk, "embedding">[] = [];
 
-  for (const file of markdownFiles) {
-    const fullPath = path.join(knowledgeDirectory, file);
-    const document = await readFile(fullPath, "utf8");
+  for (const file of supportedFiles) {
+  const fullPath = path.join(knowledgeDirectory, file);
+
+  try {
+    const document = await extractDocumentText(fullPath, file);
 
     const paragraphs = document
       .split(/\n\s*\n/)
@@ -84,12 +113,13 @@ async function loadKnowledge(): Promise<KnowledgeChunk[]> {
       .filter(Boolean);
 
     for (const paragraph of paragraphs) {
-      chunks.push({
-        source: file,
-        content: paragraph,
-      });
+      chunks.push({ source: file, content: paragraph });
     }
+  } catch (error) {
+    console.error(`Failed to read knowledge file "${file}":`, error);
+    throw new Error(`Could not load knowledge file: ${file}`);
   }
+}
 
   if (chunks.length === 0) {
     return [];
