@@ -4,7 +4,7 @@ import { askAI } from "./aiService.js";
 async function main(): Promise<void> {
   try {
     const question =
-      "What is Moodle, and how does it help teachers and learners?";
+      "What is Moodle and how does it work?";
 
     const answer = await askAI(question);
 
