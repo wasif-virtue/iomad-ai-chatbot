@@ -141,9 +141,14 @@ async function createEmbeddings(texts: string[]): Promise<number[][]> {
 async function loadKnowledge(): Promise<KnowledgeChunk[]> {
   const files = await readdir(knowledgeDirectory);
 
-  const supportedFiles = files
-    .filter((file) => /\.(md|pdf|docx)$/i.test(file))
-    .sort();
+  
+const supportedFiles = files
+  .filter((file) => /\.(md|pdf|docx)$/i.test(file))
+  .sort();
+
+console.log("Knowledge directory:", knowledgeDirectory);
+console.log("Supported knowledge files:", supportedFiles);
+
 
   const chunks: Omit<KnowledgeChunk, "embedding">[] = [];
 
@@ -151,21 +156,43 @@ async function loadKnowledge(): Promise<KnowledgeChunk[]> {
     const fullPath = path.join(knowledgeDirectory, file);
 
     try {
-      const document = await extractDocumentText(fullPath, file);
+const document = await extractDocumentText(fullPath, file);
 
-      const paragraphs = document
-        .split(/\n\s*\n/)
-        .map((paragraph) => paragraph.trim())
-        .filter(Boolean);
+console.log(
+  `[Knowledge] ${file} raw text:`,
+  JSON.stringify(document),
+);
 
-      for (const paragraph of paragraphs) {
-        const textChunks = splitIntoChunks(paragraph);
+console.log(
+  `[Knowledge] ${file}: extracted ${document.length} characters`,
+);
 
-        for (const content of textChunks) {
-          chunks.push({ source: file, content });
-        }
-      }
-    } catch (error) {
+if (!document.trim()) {
+  console.warn(`[Knowledge] ${file} contains no extractable text.`);
+  continue;
+}
+
+const paragraphs = document
+  .replace(/\r\n/g, "\n")
+  .split(/\n+/)
+  .map((paragraph) => paragraph.trim())
+  .filter(Boolean);
+
+let fileChunkCount = 0;
+
+for (const paragraph of paragraphs) {
+  const textChunks = splitIntoChunks(paragraph);
+
+  for (const content of textChunks) {
+    chunks.push({ source: file, content });
+    fileChunkCount++;
+  }
+}
+
+console.log(
+  `[Knowledge] ${file}: created ${fileChunkCount} chunks`,
+);
+} catch (error) {
       console.error(`Failed to read knowledge file "${file}":`, error);
       throw new Error(`Could not load knowledge file: ${file}`);
     }
@@ -254,7 +281,15 @@ export async function searchKnowledge(
   if (!questionEmbedding) {
     throw new Error("Ollama did not return an embedding for the question.");
   }
+console.log("[Search] Total loaded chunks:", chunks.length);
 
+console.table(
+  chunks.map((chunk, index) => ({
+    index,
+    source: chunk.source,
+    content: chunk.content.slice(0, 100),
+  })),
+);
   const ranked = chunks
     .map((chunk) => ({
       source: chunk.source,
@@ -262,9 +297,25 @@ export async function searchKnowledge(
       score: cosineSimilarity(questionEmbedding, chunk.embedding),
     }))
     .filter((chunk) => chunk.score >= MIN_SIMILARITY)
+    
     .sort((a, b) => b.score - a.score)
+    
     .slice(0, Math.max(0, limit));
-
+if (process.env.NODE_ENV !== "production") {
+  console.table(
+    ranked.map(({ source, score, content }) => ({
+      source,
+      score: Number(score.toFixed(3)),
+      preview: content.slice(0, 100),
+    })),
+  );
+}
+console.log(
+  "[Search] Result count:",
+  ranked.length,
+  "Sources:",
+  ranked.map((item) => item.source),
+);
   return ranked.map(({ source, content }) => ({
     source,
     content,
