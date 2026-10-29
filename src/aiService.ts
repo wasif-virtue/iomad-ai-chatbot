@@ -200,16 +200,26 @@ export async function streamAI(
 
     // Ollama sends reasoning in message.thinking.
     // Deliberately ignore it and emit only final-answer content.
-    const token = data.message?.content ?? "";
+    
+const token = data.message?.content ?? "";
 
-    if (token) {
-      visibleOutput += token;
-      onToken(token);
-    }
+if (token) {
+  visibleOutput += token;
+  onToken(token);
+}
 
-    if (data.done) {
-      finished = true;
-    }
+if (data.done) {
+  console.log("[Stream diagnostic]", {
+    done: data.done,
+    doneReason: data.done_reason,
+    answerCharacters: visibleOutput.length,
+    finalChunkContentLength: token.length,
+    hasThinkingField: Boolean(data.message?.thinking),
+  });
+
+  finished = true;
+}
+
   }
 
   try {
