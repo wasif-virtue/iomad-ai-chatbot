@@ -1,4 +1,3 @@
-
 import { readdir, readFile } from "node:fs/promises";
 import mammoth from "mammoth";
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
@@ -8,15 +7,47 @@ import { fileURLToPath } from "node:url";
 const currentFile = fileURLToPath(import.meta.url);
 const currentDirectory = path.dirname(currentFile);
 
-const knowledgeDirectory = path.resolve(
-  currentDirectory,
-  "../knowledge",
-);
+const knowledgeDirectory = path.resolve(currentDirectory, "../knowledge");
 
 const OLLAMA_URL = "http://127.0.0.1:11434";
 const EMBEDDING_MODEL = "nomic-embed-text";
 const MAX_RESULTS = 4;
 const MIN_SIMILARITY = 0.35;
+const CHUNK_SIZE = 1000;
+const CHUNK_OVERLAP = 150;
+
+function splitIntoChunks(text: string): string[] {
+  const normalized = text.replace(/\s+/g, " ").trim();
+
+  if (!normalized) return [];
+
+  const chunks: string[] = [];
+  let start = 0;
+
+  while (start < normalized.length) {
+    let end = Math.min(start + CHUNK_SIZE, normalized.length);
+
+    if (end < normalized.length) {
+      const preferredBreak = normalized.lastIndexOf(" ", end);
+
+      if (preferredBreak > start) {
+        end = preferredBreak;
+      }
+    }
+
+    const chunk = normalized.slice(start, end).trim();
+
+    if (chunk) {
+      chunks.push(chunk);
+    }
+
+    if (end >= normalized.length) break;
+
+    start = Math.max(end - CHUNK_OVERLAP, start + 1);
+  }
+
+  return chunks;
+}
 
 async function extractDocumentText(
   filePath: string,
@@ -29,34 +60,34 @@ async function extractDocumentText(
   }
 
   if (extension === ".pdf") {
-  const buffer = await readFile(filePath);
+    const buffer = await readFile(filePath);
 
-  const pdf = await getDocument({
-    data: new Uint8Array(buffer),
-  }).promise;
+    const pdf = await getDocument({
+      data: new Uint8Array(buffer),
+    }).promise;
 
-  const pages: string[] = [];
+    const pages: string[] = [];
 
-  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
-    const page = await pdf.getPage(pageNumber);
-    const content = await page.getTextContent();
+    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+      const page = await pdf.getPage(pageNumber);
+      const content = await page.getTextContent();
 
-    const pageText = content.items
-      .map((item) => {
-        if ("str" in item) {
-          return item.str;
-        }
+      const pageText = content.items
+        .map((item) => {
+          if ("str" in item) {
+            return item.str;
+          }
 
-        return "";
-      })
-      .filter(Boolean)
-      .join(" ");
+          return "";
+        })
+        .filter(Boolean)
+        .join(" ");
 
-    pages.push(pageText);
+      pages.push(pageText);
+    }
+
+    return pages.join("\n\n");
   }
-
-  return pages.join("\n\n");
-}
 
   if (extension === ".docx") {
     const result = await mammoth.extractRawText({
@@ -78,9 +109,7 @@ type OllamaEmbeddingResponse = {
   error?: string;
 };
 
-async function createEmbeddings(
-  texts: string[],
-): Promise<number[][]> {
+async function createEmbeddings(texts: string[]): Promise<number[][]> {
   const response = await fetch(`${OLLAMA_URL}/api/embed`, {
     method: "POST",
     headers: {
@@ -93,9 +122,7 @@ async function createEmbeddings(
   });
 
   if (!response.ok) {
-    throw new Error(
-      `Ollama embedding request failed: HTTP ${response.status}`,
-    );
+    throw new Error(`Ollama embedding request failed: HTTP ${response.status}`);
   }
 
   const data: OllamaEmbeddingResponse = await response.json();
@@ -104,13 +131,8 @@ async function createEmbeddings(
     throw new Error(data.error);
   }
 
-  if (
-    !data.embeddings ||
-    data.embeddings.length !== texts.length
-  ) {
-    throw new Error(
-      "Ollama did not return an embedding for every input.",
-    );
+  if (!data.embeddings || data.embeddings.length !== texts.length) {
+    throw new Error("Ollama did not return an embedding for every input.");
   }
 
   return data.embeddings;
@@ -120,30 +142,34 @@ async function loadKnowledge(): Promise<KnowledgeChunk[]> {
   const files = await readdir(knowledgeDirectory);
 
   const supportedFiles = files
-  .filter((file) => /\.(md|pdf|docx)$/i.test(file))
-  .sort();
+    .filter((file) => /\.(md|pdf|docx)$/i.test(file))
+    .sort();
 
   const chunks: Omit<KnowledgeChunk, "embedding">[] = [];
 
   for (const file of supportedFiles) {
-  const fullPath = path.join(knowledgeDirectory, file);
+    const fullPath = path.join(knowledgeDirectory, file);
 
-  try {
-    const document = await extractDocumentText(fullPath, file);
+    try {
+      const document = await extractDocumentText(fullPath, file);
 
-    const paragraphs = document
-      .split(/\n\s*\n/)
-      .map((paragraph) => paragraph.trim())
-      .filter(Boolean);
+      const paragraphs = document
+        .split(/\n\s*\n/)
+        .map((paragraph) => paragraph.trim())
+        .filter(Boolean);
 
-    for (const paragraph of paragraphs) {
-      chunks.push({ source: file, content: paragraph });
+      for (const paragraph of paragraphs) {
+        const textChunks = splitIntoChunks(paragraph);
+
+        for (const content of textChunks) {
+          chunks.push({ source: file, content });
+        }
+      }
+    } catch (error) {
+      console.error(`Failed to read knowledge file "${file}":`, error);
+      throw new Error(`Could not load knowledge file: ${file}`);
     }
-  } catch (error) {
-    console.error(`Failed to read knowledge file "${file}":`, error);
-    throw new Error(`Could not load knowledge file: ${file}`);
   }
-}
 
   if (chunks.length === 0) {
     return [];
@@ -154,22 +180,18 @@ async function loadKnowledge(): Promise<KnowledgeChunk[]> {
     chunks.map((chunk) => chunk.content),
   );
 
-  
-return chunks.map((chunk, index): KnowledgeChunk => {
-  const embedding = embeddings[index];
+  return chunks.map((chunk, index): KnowledgeChunk => {
+    const embedding = embeddings[index];
 
-  if (!embedding) {
-    throw new Error(
-      `Missing embedding for passage from ${chunk.source}`,
-    );
-  }
+    if (!embedding) {
+      throw new Error(`Missing embedding for passage from ${chunk.source}`);
+    }
 
-  return {
-    ...chunk,
-    embedding,
-  };
-});
-
+    return {
+      ...chunk,
+      embedding,
+    };
+  });
 }
 
 let knowledgeCache: Promise<KnowledgeChunk[]> | null = null;
@@ -186,10 +208,7 @@ function getKnowledge(): Promise<KnowledgeChunk[]> {
   return knowledgeCache;
 }
 
-function cosineSimilarity(
-  a: number[],
-  b: number[],
-): number {
+function cosineSimilarity(a: number[], b: number[]): number {
   if (a.length !== b.length || a.length === 0) {
     return 0;
   }
@@ -198,29 +217,24 @@ function cosineSimilarity(
   let magnitudeA = 0;
   let magnitudeB = 0;
 
-  
-for (let i = 0; i < a.length; i++) {
-  const valueA = a[i];
-  const valueB = b[i];
+  for (let i = 0; i < a.length; i++) {
+    const valueA = a[i];
+    const valueB = b[i];
 
-  if (valueA === undefined || valueB === undefined) {
-    return 0;
+    if (valueA === undefined || valueB === undefined) {
+      return 0;
+    }
+
+    dotProduct += valueA * valueB;
+    magnitudeA += valueA * valueA;
+    magnitudeB += valueB * valueB;
   }
-
-  dotProduct += valueA * valueB;
-  magnitudeA += valueA * valueA;
-  magnitudeB += valueB * valueB;
-}
-
 
   if (magnitudeA === 0 || magnitudeB === 0) {
     return 0;
   }
 
-  return (
-    dotProduct /
-    (Math.sqrt(magnitudeA) * Math.sqrt(magnitudeB))
-  );
+  return dotProduct / (Math.sqrt(magnitudeA) * Math.sqrt(magnitudeB));
 }
 
 export async function searchKnowledge(
@@ -234,26 +248,18 @@ export async function searchKnowledge(
   }
 
   // Embed the question using the same model as the documents.
-  
-const [questionEmbedding] = await createEmbeddings([
-  question,
-]);
 
-if (!questionEmbedding) {
-  throw new Error(
-    "Ollama did not return an embedding for the question.",
-  );
-}
+  const [questionEmbedding] = await createEmbeddings([question]);
 
+  if (!questionEmbedding) {
+    throw new Error("Ollama did not return an embedding for the question.");
+  }
 
   const ranked = chunks
     .map((chunk) => ({
       source: chunk.source,
       content: chunk.content,
-      score: cosineSimilarity(
-        questionEmbedding,
-        chunk.embedding,
-      ),
+      score: cosineSimilarity(questionEmbedding, chunk.embedding),
     }))
     .filter((chunk) => chunk.score >= MIN_SIMILARITY)
     .sort((a, b) => b.score - a.score)

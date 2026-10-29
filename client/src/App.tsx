@@ -1,3 +1,4 @@
+
 import { useState, type FormEvent } from "react";
 import "./App.css";
 
@@ -7,6 +8,11 @@ type Message = {
   sources?: string[];
   usedKnowledge?: boolean;
 };
+
+type StreamEvent =
+  | { type: "token"; token: string }
+  | { type: "done"; sources: string[]; usedKnowledge: boolean }
+  | { type: "error"; error: string };
 
 function App() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -18,12 +24,12 @@ function App() {
     event.preventDefault();
 
     const trimmedQuestion = question.trim();
-
     if (!trimmedQuestion || loading) return;
 
     setMessages((previous) => [
       ...previous,
       { role: "user", content: trimmedQuestion },
+      { role: "assistant", content: "", sources: [], usedKnowledge: false },
     ]);
     setQuestion("");
     setError("");
@@ -32,37 +38,116 @@ function App() {
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question: trimmedQuestion }),
       });
 
-      const data: {
-        answer?: string;
-        sources?: string[];
-        usedKnowledge?: boolean;
-        error?: string;
-      } = await response.json();
-
       if (!response.ok) {
+        const data = (await response.json().catch(() => ({}))) as {
+          error?: string;
+        };
         throw new Error(data.error || "The request failed.");
       }
 
-      if (typeof data.answer !== "string") {
-        throw new Error("The server returned an invalid response.");
+      if (!response.body) {
+        throw new Error("The server returned no response stream.");
       }
 
-      setMessages((previous) => [
-        ...previous,
-        {
-          role: "assistant",
-          content: data.answer!,
-          sources: data.sources ?? [],
-          usedKnowledge: data.usedKnowledge ?? false,
-        },
-      ]);
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let receivedDone = false;
+      let receivedToken = false;
+
+      const updateAssistant = (update: (message: Message) => Message) => {
+        setMessages((previous) => {
+          const next = [...previous];
+          const lastIndex = next.length - 1;
+          const lastMessage = next[lastIndex];
+
+          if (lastMessage?.role === "assistant") {
+            next[lastIndex] = update(lastMessage);
+          }
+
+          return next;
+        });
+      };
+
+      const handleEvent = (line: string) => {
+        if (!line.startsWith("data:")) return;
+
+        const payload = line.slice(5).trim();
+        if (!payload) return;
+
+        const data = JSON.parse(payload) as StreamEvent;
+
+        if (data.type === "token") {
+          receivedToken = true;
+          updateAssistant((message) => ({
+            ...message,
+            content:
+  message.content.length === 0
+    ? data.token.trimStart()
+    : message.content + data.token,
+          }));
+        } else if (data.type === "done") {
+          receivedDone = true;
+          updateAssistant((message) => ({
+            ...message,
+            sources: data.sources,
+            usedKnowledge: data.usedKnowledge,
+          }));
+        } else if (data.type === "error") {
+          throw new Error(data.error);
+        }
+      };
+
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+
+          const events = buffer.split("\n\n");
+          buffer = events.pop() ?? "";
+
+          for (const rawEvent of events) {
+            for (const line of rawEvent.split("\n")) {
+              handleEvent(line);
+            }
+          }
+        }
+
+        buffer += decoder.decode();
+
+        if (buffer.trim()) {
+          for (const line of buffer.split("\n")) {
+            handleEvent(line);
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+
+      if (!receivedToken || !receivedDone) {
+        throw new Error("The response stream ended before the answer completed.");
+      }
     } catch (err) {
+      setMessages((previous) => {
+        const lastIndex = previous.length - 1;
+        const lastMessage = previous[lastIndex];
+
+        if (lastMessage?.role !== "assistant") return previous;
+
+        const next = [...previous];
+        next[lastIndex] = {
+          ...lastMessage,
+          content: lastMessage.content || "Sorry, I couldn't generate a response.",
+        };
+        return next;
+      });
+
       setError(
         err instanceof Error
           ? err.message
@@ -114,9 +199,25 @@ function App() {
                 <div className="message-label">
                   {message.role === "user" ? "You" : "Assistant"}
                 </div>
-                <div className="message-content">{message.content}</div>
 
-                {message.role === "assistant" && (
+                <div className="message-content">
+                  {message.content}
+                  {loading &&
+                    message.role === "assistant" &&
+                    index === messages.length - 1 && (
+                      <span className="stream-cursor" aria-hidden="true" />
+                    )}
+                  {loading &&
+                    message.role === "assistant" &&
+                    index === messages.length - 1 &&
+                    !message.content && (
+                      <span className="thinking-indicator">
+                        Searching knowledge and generating answer…
+                      </span>
+                    )}
+                </div>
+
+                {message.role === "assistant" && message.content && (
                   <div className="message-sources">
                     {message.usedKnowledge && message.sources?.length ? (
                       <>
@@ -136,11 +237,6 @@ function App() {
                 )}
               </article>
             ))}
-            {loading && (
-              <div className="loading" role="status">
-                Assistant is thinking...
-              </div>
-            )}
           </div>
         )}
 
@@ -177,7 +273,7 @@ function App() {
         <div className="composer-footer">
           <span>Enter to send · Shift+Enter for a new line</span>
           <button type="submit" disabled={loading || !question.trim()}>
-            {loading ? "Thinking..." : "Send ↑"}
+            {loading ? "Generating..." : "Send ↑"}
           </button>
         </div>
       </form>

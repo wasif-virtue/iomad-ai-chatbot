@@ -1,5 +1,7 @@
+
 import express, { type Request, type Response } from "express";
-import { askAI } from "./aiService.js";
+import { streamAI } from "./aiService.js";
+
 const app = express();
 const PORT = 3000;
 
@@ -29,20 +31,39 @@ app.post("/api/chat", async (req: Request, res: Response) => {
     return;
   }
 
+  res.status(200);
+  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders();
+
+  const sendEvent = (event: object) => {
+    if (!res.writableEnded && !res.destroyed) {
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+    }
+  };
+
   try {
-   const result = await askAI(question.trim());
+    const metadata = await streamAI(question.trim(), (token) => {
+      sendEvent({ type: "token", token });
+    });
 
-res.json({
-  answer: result.answer,
-  sources: result.sources,
-  usedKnowledge: result.usedKnowledge,
-});
+    sendEvent({
+      type: "done",
+      sources: metadata.sources,
+      usedKnowledge: metadata.usedKnowledge,
+    });
+
+    res.end();
   } catch (error) {
-    console.error("Chat request failed:", error);
+    console.error("Chat streaming failed:", error);
 
-    res.status(502).json({
+    sendEvent({
+      type: "error",
       error: "The AI service could not generate a response.",
     });
+
+    res.end();
   }
 });
 

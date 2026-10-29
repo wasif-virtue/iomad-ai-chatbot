@@ -146,16 +146,25 @@ textarea {
   border: 1px solid #e0e5ee;
 }
 
+
+
 .message-label {
-  margin-bottom: 7px;
+  margin: 0 0 8px;
+  padding: 0;
+  line-height: 1.4;
   font-size: 12px;
   font-weight: 700;
   color: #56647c;
 }
 
 .message-content {
+  margin: 0;
+  padding: 0;
+  min-height: 0;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
+
 
 .loading {
   color: #697386;
@@ -300,4 +309,26 @@ textarea {
 
 .message-sources li {
   overflow-wrap: anywhere;
+}
+.stream-cursor {
+  display: inline-block;
+  width: 7px;
+  height: 1em;
+  margin-left: 3px;
+  vertical-align: text-bottom;
+  background: currentColor;
+  animation: stream-blink 1s steps(2, start) infinite;
+}
+
+.thinking-indicator {
+  display: block;
+  margin-top: 6px;
+  opacity: 0.7;
+  font-size: 0.9em;
+}
+
+@keyframes stream-blink {
+  to {
+    visibility: hidden;
+  }
 }
