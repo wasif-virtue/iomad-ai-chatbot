@@ -219,19 +219,12 @@ function App() {
 
                 {message.role === "assistant" && message.content && (
                   <div className="message-sources">
-                    {message.usedKnowledge && message.sources?.length ? (
-                      <>
-                        <strong>Sources:</strong>
-                        <ul>
-                          {message.sources.map((source) => (
-                            <li key={source}>{source}</li>
-                          ))}
-                        </ul>
-                      </>
-                    ) : (
+                    {message.usedKnowledge ? (
                       <span>
-                        No matching local knowledge sources were found.
+                        Retrieved local passages were provided to the assistant; supporting sources were not verified.
                       </span>
+                    ) : (
+                      <span>No matching local knowledge passages were found.</span>
                     )}
                   </div>
                 )}

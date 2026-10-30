@@ -121,7 +121,8 @@ export async function askAI(
 
   return {
     answer,
-    sources: prepared.sources,
+    // Retrieval is not evidence attribution; do not expose these documents as citations.
+    sources: [],
     usedKnowledge: prepared.usedKnowledge,
   };
 }
@@ -246,7 +247,8 @@ if (data.done) {
   }
 
   return {
-    sources: prepared.sources,
+    // Retrieval is not evidence attribution; do not expose these documents as citations.
+    sources: [],
     usedKnowledge: prepared.usedKnowledge,
   };
 }
